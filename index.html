@@ -41,21 +41,30 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 function repo(){const q=new URLSearchParams(location.search).get('r');if(q&&/^[\w.-]+\/[\w.-]+$/.test(q))return q;
  const h=location.hostname;if(h.endsWith('.github.io')){const p=location.pathname.split('/').filter(Boolean)[0];if(p)return h.split('.')[0]+'/'+p}return''}
 const R=repo(),API='https://api.github.com/repos/'+R+'/contents/progress.json';
-let etag='',last=null,lastUpd=0,lastOk=0;
+let etag='',last=null,lastUpd=0,lastOk=0,apiOff=0,miss=0;
 function hm(m){m=Math.round(m||0);return Math.floor(m/60)+'h '+String(m%60).padStart(2,'0')+'m'}
 function ago(t){const s=Math.max(0,Math.round((Date.now()-t)/1000));if(s<10)return'just now';if(s<60)return s+'s ago';if(s<3600)return Math.round(s/60)+' min ago';if(s<86400)return Math.round(s/3600)+' h ago';return Math.round(s/86400)+' d ago'}
 function dec(b){const bin=atob(b.replace(/\s/g,''));return new TextDecoder().decode(Uint8Array.from(bin,c=>c.charCodeAt(0)))}
+function got(o){last=o;lastOk=Date.now();miss=0;if(!o||!o.updated)return;draw(o)}
+async function viaApi(){const h={Accept:'application/vnd.github+json'};if(etag)h['If-None-Match']=etag;
+ const r=await fetch(API,{headers:h,cache:'no-store'});
+ if(r.status===304){lastOk=Date.now();return'ok'}
+ if(r.status===200){etag=r.headers.get('etag')||'';const j=await r.json();got(JSON.parse(dec(j.content)));return'ok'}
+ if(r.status===403||r.status===429){const rs=+r.headers.get('x-ratelimit-reset');apiOff=rs?rs*1000:Date.now()+10*60e3;return'limit'}
+ if(r.status===404)return'none';
+ throw new Error(r.status)}
+async function viaRaw(){const r=await fetch('https://raw.githubusercontent.com/'+R+'/main/progress.json?t='+Date.now(),{cache:'no-store'});
+ if(r.status===200){got(await r.json());return'ok'}
+ if(r.status===404)return'none';throw new Error(r.status)}
 async function poll(){
  if(!R){showErr('This page cannot tell which repository to read. Open it as <b>?r=username/repo</b>, or host it on GitHub Pages.');return}
- try{const h={Accept:'application/vnd.github+json'};if(etag)h['If-None-Match']=etag;
-  const r=await fetch(API,{headers:h,cache:'no-store'});
-  if(r.status===304){lastOk=Date.now()}
-  else if(r.status===200){etag=r.headers.get('etag')||'';const j=await r.json();last=JSON.parse(dec(j.content));lastOk=Date.now();draw(last)}
-  else if(r.status===404){showErr('No progress has been shared yet. Ask the student to open the Mentor window in the app and press Save and share now.')}
-  else if(r.status===403){status('Rate limited, retrying',false)}
-  else throw new Error(r.status);
-  if(r.status===200||r.status===304)hideErr()}
- catch(e){status('Offline, retrying',false)}
+ let res='';
+ try{res=Date.now()>apiOff?await viaApi():'limit';
+  if(res==='limit'||res==='none')res=await viaRaw()}
+ catch(e){try{res=await viaRaw()}catch(e2){res='err'}}
+ if(res==='ok')hideErr();
+ else if(res==='none'){miss++;showErr('No progress has been shared yet. Ask the student to open the Mentor window in the app and press <b>Save and share now</b>.')}
+ else status('Offline, retrying',false);
  tick()}
 function showErr(m){$('err').style.display='block';$('err').innerHTML=m;$('app').style.display='none';status('Waiting',false)}
 function hideErr(){$('err').style.display='none';$('app').style.display='block'}
@@ -83,6 +92,6 @@ function draw(o){
  const sl=(o.slots||[]).filter(x=>x.title),tk=o.tasks||[];
  $('plan').innerHTML=(sl.length||tk.length)?sl.map(x=>'<div>'+(x.ok?'✅':'⬜')+' '+esc(x.from)+'-'+esc(x.to)+' '+esc(x.title)+' <small class="muted">'+esc(x.type)+'</small></div>').join('')+tk.map(x=>'<div>'+(x.done?'✅':'⬜')+' '+esc(x.text)+' <small class="muted">'+esc(x.subject)+'</small></div>').join(''):'<span class="muted">Nothing planned yet today.</span>';
  hideErr();tick()}
-poll();setInterval(poll,20000);setInterval(tick,5000);
+poll();setInterval(()=>{if(!document.hidden)poll()},30000);setInterval(tick,5000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
 </script></main></body></html>
