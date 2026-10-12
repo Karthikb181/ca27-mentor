@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CA 27 Mentor View</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--ink:#0f172a;--mut:#64748b;--line:#e2e8f0;--acc:#4f46e5;--ok:#059669;--warn:#d97706;--bad:#e11d48}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1020;--card:#131a2e;--ink:#e5e9f5;--mut:#94a3b8;--line:#243049;--acc:#818cf8;--ok:#34d399;--warn:#fbbf24;--bad:#fb7185}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+h1{font-size:20px;margin:0}h2{font-size:13px;margin:0 0 10px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.stat b{display:block;font-size:24px}.stat span{color:var(--mut);font-size:12px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:12px;border:1px solid var(--line);background:var(--card)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--mut)}.live .dot{background:var(--ok);animation:p 1.4s infinite}
+@keyframes p{50%{opacity:.25}}
+.bar{height:8px;background:var(--line);border-radius:9px;overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
+.row{display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center;margin:8px 0}
+.row small{color:var(--mut)}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}th{color:var(--mut);font-weight:600}
+.studying{background:linear-gradient(90deg,rgba(5,150,105,.15),transparent);border-color:var(--ok)}
+.muted{color:var(--mut)}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+svg{width:100%;height:120px;display:block}
+@media(max-width:560px){main{padding:12px}}
+</style></head><body><main>
+<header><div><h1 id="nm">CA 27 progress</h1><div class="muted" id="sub">Loading...</div></div>
+<div class="pill" id="st"><span class="dot"></span><span id="stt">Connecting</span></div></header>
+<div id="err" class="card" style="display:none"></div>
+<div id="app" style="display:none">
+ <div id="now" class="card" style="display:none"></div>
+ <div class="grid card" id="stats"></div>
+ <div class="card"><h2>Hours studied, last 30 days</h2><svg id="chart" viewBox="0 0 300 120" preserveAspectRatio="none"></svg><div class="muted" id="chartn"></div></div>
+ <div class="card"><h2>Syllabus coverage by subject</h2><div id="subj"></div></div>
+ <div class="card"><h2>Test scores</h2><div id="tests"></div></div>
+ <div class="card"><h2>Today's plan</h2><div id="plan"></div></div>
+</div>
+<p class="muted" style="text-align:center;font-size:12px">Read-only live view. Updates automatically.</p>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function repo(){const q=new URLSearchParams(location.search).get('r');if(q&&/^[\w.-]+\/[\w.-]+$/.test(q))return q;
+ const h=location.hostname;if(h.endsWith('.github.io')){const p=location.pathname.split('/').filter(Boolean)[0];if(p)return h.split('.')[0]+'/'+p}return''}
+const R=repo(),API='https://api.github.com/repos/'+R+'/contents/progress.json';
+let cur=null,etag='',last=null,lastUpd=0,lastOk=0,apiOff=0,miss=0;
+function hm(m){m=Math.round(m||0);return Math.floor(m/60)+'h '+String(m%60).padStart(2,'0')+'m'}
+function ago(t){const s=Math.max(0,Math.round((Date.now()-t)/1000));if(s<10)return'just now';if(s<60)return s+'s ago';if(s<3600)return Math.round(s/60)+' min ago';if(s<86400)return Math.round(s/3600)+' h ago';return Math.round(s/86400)+' d ago'}
+function dec(b){const bin=atob(b.replace(/\s/g,''));return new TextDecoder().decode(Uint8Array.from(bin,c=>c.charCodeAt(0)))}
+function got(o){last=o;lastOk=Date.now();miss=0;if(!o||!o.updated)return;draw(o)}
+async function viaApi(){const h={Accept:'application/vnd.github+json'};if(etag)h['If-None-Match']=etag;
+ const r=await fetch(API,{headers:h,cache:'no-store'});
+ if(r.status===304){lastOk=Date.now();return'ok'}
+ if(r.status===200){etag=r.headers.get('etag')||'';const j=await r.json();got(JSON.parse(dec(j.content)));return'ok'}
+ if(r.status===403||r.status===429){const rs=+r.headers.get('x-ratelimit-reset');apiOff=rs?rs*1000:Date.now()+10*60e3;return'limit'}
+ if(r.status===404)return'none';
+ throw new Error(r.status)}
+async function viaRaw(){const r=await fetch('https://raw.githubusercontent.com/'+R+'/main/progress.json?t='+Date.now(),{cache:'no-store'});
+ if(r.status===200){got(await r.json());return'ok'}
+ if(r.status===404)return'none';throw new Error(r.status)}
+async function poll(){
+ if(!R){showErr('This page cannot tell which repository to read. Open it as <b>?r=username/repo</b>, or host it on GitHub Pages.');return}
+ let res='';
+ try{res=Date.now()>apiOff?await viaApi():'limit';
+  if(res==='limit'||res==='none')res=await viaRaw()}
+ catch(e){try{res=await viaRaw()}catch(e2){res='err'}}
+ if(res==='ok')hideErr();
+ else if(res==='none'){miss++;showErr('No progress has been shared yet. Ask the student to open the Mentor window in the app and press <b>Save and share now</b>.')}
+ else status('Offline, retrying',false);
+ tick()}
+function showErr(m){$('err').style.display='block';$('err').innerHTML=m;$('app').style.display='none';status('Waiting',false)}
+function hideErr(){$('err').style.display='none';$('app').style.display='block'}
+function status(t,on){$('stt').textContent=t;$('st').className='pill'+(on?' live':'')}
+function tick(){if(!last)return;lastUpd=last.updated||0;
+ const fresh=Date.now()-lastOk<90e3;
+ $('sub').textContent='Last update from the student: '+ago(lastUpd);
+ if(fresh)status(liveOn(last)?'Studying now':'Live',true);else status('Connection lost',false)}
+function liveOn(o){const lv=o.live||{};return !!lv.on&&Date.now()-(o.updated||0)<150e3}
+function extra(o){const lv=o.live||{};if(!liveOn(o)||lv.mode!=='pomodoro')return 0;const end=lv.endAt||Infinity;return Math.max(0,(Math.min(Date.now(),end)-o.updated)/60000)}
+function mmss(s){s=Math.max(0,Math.round(s));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+function liveTick(){const o=cur;if(!o)return;const lv=o.live||{},n=$('now'),x=extra(o);
+ if(liveOn(o)&&(!lv.endAt||Date.now()<lv.endAt+15000)){const left=lv.endAt?(lv.endAt-Date.now())/1000:0;
+  n.style.display='block';n.className='card studying';
+  n.innerHTML='<b>'+(lv.mode==='pomodoro'?'Studying right now':'On a break')+'</b>'+(lv.label?': '+esc(lv.label):'')+(lv.endAt?' <span class="muted">('+(left>0?mmss(left)+' left':'timer finished')+')</span>':'')}
+ else n.style.display='none';
+ const t=$('tdy');if(t)t.textContent=hm(o.todayMin+x);
+ const days=o.days||[],wk=days.slice(-7).reduce((a,d)=>a+d.min,0);const w=$('wk');if(w)w.textContent=hm(wk+x);const a=$('all');if(a)a.textContent=hm(o.totalMin+x)}
+function pct(a,b){return b?Math.round(a/b*100):0}
+function draw(o){
+ $('nm').textContent=o.name+"'s progress";document.title=o.name+' - CA 27 progress';
+ cur=o;liveTick();
+ const days=o.days||[],wk=days.slice(-7).reduce((a,d)=>a+d.min,0),act=days.slice(-7).filter(d=>d.min>0).length;
+ let streak=0;for(let i=days.length-1;i>=0;i--){if(days[i].min>0)streak++;else if(i===days.length-1)continue;else break}
+ const qa=o.q&&o.q.aa?pct(o.q.cc,o.q.aa)+'%':'-';
+ const tt=(o.tests||[]),avg=tt.length?Math.round(tt.reduce((a,t)=>a+(t.total?t.got/t.total*100:0),0)/tt.length):null;
+ const S=[['Today',hm(o.todayMin),'tdy'],['Goal',o.goal+' h/day'],['This week',hm(wk),'wk'],['Active days (7d)',act+'/7'],['Streak',streak+' d'],['All time',hm(o.totalMin),'all'],['Questions',(o.q&&o.q.n)||0],['Accuracy',qa],['Test average',avg===null?'-':avg+'%']];
+ $('stats').innerHTML=S.map(([k,v,id])=>'<div class="stat"><b'+(id?' id="'+id+'"':'')+'>'+esc(v)+'</b><span>'+k+'</span></div>').join('');
+ const mx=Math.max(o.goal*60,60,...days.map(d=>d.min)),w=300/Math.max(1,days.length);
+ $('chart').innerHTML=days.map((d,i)=>{const h=d.min/mx*104;return'<rect x="'+(i*w+1)+'" y="'+(116-h)+'" width="'+(w-2)+'" height="'+Math.max(h,d.min?1.5:0)+'" rx="1.5" fill="var(--acc)"><title>'+d.d+': '+hm(d.min)+'</title></rect>'}).join('')+'<line x1="0" x2="300" y1="'+(116-o.goal*60/mx*104)+'" y2="'+(116-o.goal*60/mx*104)+'" stroke="var(--ok)" stroke-dasharray="3 3" stroke-width="0.7"/>';
+ $('chartn').textContent='Dashed line = daily goal ('+o.goal+' h). Hover a bar for the day.';
+ $('subj').innerHTML=(o.subjects||[]).map(s=>{const p=pct(s.cov,s.n);return'<div class="row"><div><div>'+esc(s.name)+' <small>'+esc(s.group)+'</small></div><div class="bar"><i style="width:'+p+'%"></i></div><small>'+s.cov+' of '+s.n+' topics covered, '+s.rev+' revisions ticked</small></div><b>'+p+'%</b></div>'}).join('')||'<span class="muted">No subjects yet.</span>';
+ $('tests').innerHTML=tt.length?'<table><tr><th>Date</th><th>Subject</th><th>Topic</th><th>Marks</th></tr>'+tt.slice().reverse().map(t=>{const p=t.total?Math.round(t.got/t.total*100):0;return'<tr><td>'+esc(t.date)+'</td><td>'+esc(t.subject)+'</td><td>'+esc(t.chapter)+(t.comment?'<br><small class="muted">'+esc(t.comment)+'</small>':'')+'</td><td class="'+(p>=50?'ok':'bad')+'">'+t.got+'/'+t.total+' ('+p+'%)</td></tr>'}).join('')+'</table>':'<span class="muted">No tests logged yet.</span>';
+ const sl=(o.slots||[]).filter(x=>x.title),tk=o.tasks||[];
+ $('plan').innerHTML=(sl.length||tk.length)?sl.map(x=>'<div>'+(x.ok?'✅':'⬜')+' '+esc(x.from)+'-'+esc(x.to)+' '+esc(x.title)+' <small class="muted">'+esc(x.type)+'</small></div>').join('')+tk.map(x=>'<div>'+(x.done?'✅':'⬜')+' '+esc(x.text)+' <small class="muted">'+esc(x.subject)+'</small></div>').join(''):'<span class="muted">Nothing planned yet today.</span>';
+ hideErr();tick()}
+poll();setInterval(()=>{if(!document.hidden)poll()},5000);setInterval(tick,5000);setInterval(liveTick,1000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
+</script></main></body></html>
