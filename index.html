@@ -72,11 +72,12 @@ function status(t,on){$('stt').textContent=t;$('st').className='pill'+(on?' live
 function tick(){if(!last)return;lastUpd=last.updated||0;
  const fresh=Date.now()-lastOk<90e3;
  $('sub').textContent='Last update from the student: '+ago(lastUpd);
- if(fresh)status(last.live&&last.live.on?'Studying now':'Live',true);else status('Connection lost',false)}
-function extra(o){const lv=o.live||{};if(!lv.on||lv.mode!=='pomodoro')return 0;const end=lv.endAt||Infinity;return Math.max(0,(Math.min(Date.now(),end)-o.updated)/60000)}
+ if(fresh)status(liveOn(last)?'Studying now':'Live',true);else status('Connection lost',false)}
+function liveOn(o){const lv=o.live||{};return !!lv.on&&Date.now()-(o.updated||0)<150e3}
+function extra(o){const lv=o.live||{};if(!liveOn(o)||lv.mode!=='pomodoro')return 0;const end=lv.endAt||Infinity;return Math.max(0,(Math.min(Date.now(),end)-o.updated)/60000)}
 function mmss(s){s=Math.max(0,Math.round(s));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
 function liveTick(){const o=cur;if(!o)return;const lv=o.live||{},n=$('now'),x=extra(o);
- if(lv.on&&(!lv.endAt||Date.now()<lv.endAt+15000)){const left=lv.endAt?(lv.endAt-Date.now())/1000:0;
+ if(liveOn(o)&&(!lv.endAt||Date.now()<lv.endAt+15000)){const left=lv.endAt?(lv.endAt-Date.now())/1000:0;
   n.style.display='block';n.className='card studying';
   n.innerHTML='<b>'+(lv.mode==='pomodoro'?'Studying right now':'On a break')+'</b>'+(lv.label?': '+esc(lv.label):'')+(lv.endAt?' <span class="muted">('+(left>0?mmss(left)+' left':'timer finished')+')</span>':'')}
  else n.style.display='none';
@@ -100,6 +101,6 @@ function draw(o){
  const sl=(o.slots||[]).filter(x=>x.title),tk=o.tasks||[];
  $('plan').innerHTML=(sl.length||tk.length)?sl.map(x=>'<div>'+(x.ok?'✅':'⬜')+' '+esc(x.from)+'-'+esc(x.to)+' '+esc(x.title)+' <small class="muted">'+esc(x.type)+'</small></div>').join('')+tk.map(x=>'<div>'+(x.done?'✅':'⬜')+' '+esc(x.text)+' <small class="muted">'+esc(x.subject)+'</small></div>').join(''):'<span class="muted">Nothing planned yet today.</span>';
  hideErr();tick()}
-poll();setInterval(()=>{if(!document.hidden)poll()},30000);setInterval(tick,5000);setInterval(liveTick,1000);
+poll();setInterval(()=>{if(!document.hidden)poll()},5000);setInterval(tick,5000);setInterval(liveTick,1000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
 </script></main></body></html>
